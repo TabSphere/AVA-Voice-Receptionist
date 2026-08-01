@@ -5,7 +5,7 @@ import { DATA_DIR } from './config.js';
 
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 
-const EMPTY = { calls: [], leads: [], activity: [] };
+const EMPTY = { calls: [], leads: [], activity: [], bookings: [] };
 
 let cache = null;
 
@@ -155,6 +155,47 @@ export function countsToday() {
 }
 
 // ---------------------------------------------------------------------------
+// Bookings
+// ---------------------------------------------------------------------------
+
+export function addBooking({ name, phone, service, startISO, demo = false }) {
+  const db = load();
+  const record = {
+    id: crypto.randomUUID(),
+    name: name || null,
+    phone: phone || null,
+    service: service || null,
+    startISO,
+    createdAt: new Date().toISOString(),
+    demo,
+  };
+  db.bookings.push(record);
+  save();
+  logActivity('booking', `New booking: ${record.name || 'Unknown'} — ${record.service || 'consultation'} at ${record.startISO}`);
+  return record;
+}
+
+export function listBookings() {
+  return load()
+    .bookings.slice()
+    .sort((a, b) => new Date(a.startISO) - new Date(b.startISO));
+}
+
+export function findBookingAt(startISO) {
+  return load().bookings.find((b) => b.startISO === startISO) || null;
+}
+
+export function deleteBooking(id) {
+  const db = load();
+  const idx = db.bookings.findIndex((b) => b.id === id);
+  if (idx === -1) return false;
+  const [removed] = db.bookings.splice(idx, 1);
+  save();
+  logActivity('booking', `Booking cancelled: ${removed.name || 'Unknown'} at ${removed.startISO}`);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Demo mode — seed/clear sample data (all tagged demo:true).
 // ---------------------------------------------------------------------------
 
@@ -165,10 +206,12 @@ export function clearDemo() {
     calls: db.calls.filter((c) => c.demo).length,
     leads: db.leads.filter((l) => l.demo).length,
     activity: db.activity.filter((a) => a.demo).length,
+    bookings: db.bookings.filter((b) => b.demo).length,
   };
   db.calls = db.calls.filter((c) => !c.demo);
   db.leads = db.leads.filter((l) => !l.demo);
   db.activity = db.activity.filter((a) => !a.demo);
+  db.bookings = db.bookings.filter((b) => !b.demo);
   save();
   return removed;
 }
@@ -176,11 +219,12 @@ export function clearDemo() {
 /** Seed realistic demo data (clears any previous demo data first). */
 export async function seedDemo() {
   clearDemo();
-  const { demoCalls, demoLeads, demoActivity } = await import('./demo.js');
+  const { demoCalls, demoLeads, demoActivity, demoBookings } = await import('./demo.js');
   const db = load();
   db.calls = [...demoCalls(), ...db.calls];
   db.leads = [...demoLeads(), ...db.leads];
   db.activity = [...demoActivity(), ...db.activity].slice(0, 100);
+  db.bookings = [...db.bookings, ...demoBookings()];
   save();
-  return { calls: demoCalls().length, leads: demoLeads().length };
+  return { calls: demoCalls().length, leads: demoLeads().length, bookings: demoBookings().length };
 }

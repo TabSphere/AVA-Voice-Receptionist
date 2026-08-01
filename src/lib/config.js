@@ -28,6 +28,20 @@ const DEFAULTS = {
   SMTP_PASS: '',
   PUBLIC_URL: '',
   TWILIO_VALIDATE_SIGNATURE: 'false',
+  // Business Brain (rebrandable knowledge)
+  BUSINESS_NAME: 'TabSphere Limited',
+  BUSINESS_ABOUT: '',
+  BUSINESS_SERVICES: '',
+  BUSINESS_FAQS: '',
+  BUSINESS_CUSTOM: '',
+  PRICING_LINK: 'https://tabsphere.co.uk',
+  BUSINESS_WEBSITE: 'www.tabsphere.co.uk',
+  // Appointment availability
+  AVAIL_DAYS: 'mon,tue,wed,thu,fri,sat',
+  AVAIL_START_HOUR: '9',
+  AVAIL_END_HOUR: '18',
+  AVAIL_SLOT_MINUTES: '30',
+  AVAIL_TIMEZONE: 'Europe/London',
 };
 
 /** Keys that must never be returned in full by the API. */
@@ -126,6 +140,29 @@ export function setDemoMode(enabled) {
   current.demoMode = enabled === true;
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(current, null, 2));
   return current.demoMode;
+}
+
+/**
+ * Branding (logo data URL) — persisted as `branding.logoDataUrl` in config.json.
+ * Kept separate from ALL_KEYS (too large for the string config API).
+ */
+export function getBranding() {
+  const branding = readFileConfig().branding;
+  return {
+    logoDataUrl: branding && typeof branding.logoDataUrl === 'string' ? branding.logoDataUrl : '',
+  };
+}
+
+export function setBranding(logoDataUrl) {
+  ensureDataDir();
+  const current = readFileConfig();
+  if (logoDataUrl) {
+    current.branding = { logoDataUrl: String(logoDataUrl) };
+  } else {
+    delete current.branding;
+  }
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(current, null, 2));
+  return getBranding();
 }
 
 /**

@@ -23,7 +23,27 @@ export default function Calls() {
   const [open, setOpen] = useState(null);
 
   useEffect(() => {
-    api.calls().then((d) => setCalls(d.calls)).catch(() => setCalls([]));
+    let cancelled = false;
+    let timer = null;
+    const load = () =>
+      api
+        .calls()
+        .then((d) => {
+          if (cancelled) return;
+          setCalls(d.calls);
+          // Poll fast while any call is in progress so transcripts stream in live.
+          const live = d.calls.some((c) => c.status === 'active' || c.status === 'in-progress');
+          clearTimeout(timer);
+          if (live) timer = setTimeout(load, 3000);
+        })
+        .catch(() => {
+          if (!cancelled) setCalls((prev) => prev ?? []);
+        });
+    load();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   return (
@@ -67,11 +87,11 @@ export default function Calls() {
                   </span>
                   <span className="font-semibold truncate">{c.from}</span>
                   <span>
-                    {c.status === 'active' ? (
-                      <span className="badge bg-red-500 text-white gap-1.5">
+                    {c.status === 'active' || c.status === 'in-progress' ? (
+                      <span className="badge bg-amber-500 text-charcoal gap-1.5 animate-pulse">
                         <span className="relative flex w-2 h-2">
-                          <span className="absolute inline-flex w-full h-full rounded-full bg-white opacity-75 animate-ping" />
-                          <span className="relative inline-flex w-2 h-2 rounded-full bg-white" />
+                          <span className="absolute inline-flex w-full h-full rounded-full bg-charcoal opacity-60 animate-ping" />
+                          <span className="relative inline-flex w-2 h-2 rounded-full bg-charcoal" />
                         </span>
                         LIVE
                       </span>

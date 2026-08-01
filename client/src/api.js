@@ -23,7 +23,23 @@ export const api = {
     }),
   calls: () => req('/api/calls'),
   leads: () => req('/api/leads'),
+  bookings: () => req('/api/bookings'),
+  cancelBooking: (id) => req(`/api/bookings/${id}`, { method: 'DELETE' }),
   test: (service) => req(`/api/test/${service}`, { method: 'POST' }),
+  branding: () => req('/api/public/branding'),
+  uploadLogo: (logoDataUrl) =>
+    req('/api/config/logo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logoDataUrl }),
+    }),
+  removeLogo: () => req('/api/config/logo', { method: 'DELETE' }),
+  changePassword: (current, next) =>
+    req('/api/auth/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current, next }),
+    }),
   setDemo: (enabled) =>
     req('/api/demo', {
       method: 'POST',

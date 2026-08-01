@@ -4,6 +4,7 @@ import Overview from './pages/Overview.jsx';
 import Settings from './pages/Settings.jsx';
 import Calls from './pages/Calls.jsx';
 import Leads from './pages/Leads.jsx';
+import Bookings from './pages/Bookings.jsx';
 import { api } from './api.js';
 
 const NAV = [
@@ -33,6 +34,15 @@ const NAV = [
     ),
   },
   {
+    id: 'bookings', label: 'Bookings',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+        <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
+  },
+  {
     id: 'settings', label: 'Settings',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
@@ -43,11 +53,22 @@ const NAV = [
   },
 ];
 
-const PAGES = { overview: Overview, calls: Calls, leads: Leads, settings: Settings };
+const PAGES = { overview: Overview, calls: Calls, leads: Leads, bookings: Bookings, settings: Settings };
 
 export default function App() {
   const [page, setPage] = useState('overview');
   const [demoMode, setDemoMode] = useState(false);
+  const [branding, setBranding] = useState(null);
+
+  // Branding (logo + business name) for the navbar.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => api.branding().then((b) => !cancelled && setBranding(b)).catch(() => {});
+    load();
+    const onBranding = () => load();
+    window.addEventListener('ava:branding', onBranding);
+    return () => { cancelled = true; window.removeEventListener('ava:branding', onBranding); };
+  }, []);
 
   // Poll status lightly for the DEMO badge (pages poll their own data too).
   useEffect(() => {
@@ -72,9 +93,15 @@ export default function App() {
           <div className="flex items-center gap-3 justify-center lg:justify-start">
             <div className="relative">
               <div className="absolute -inset-1.5 rounded-2xl bg-amber-500/40 blur-md" aria-hidden />
-              <div className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-charcoal font-extrabold flex items-center justify-center text-lg shadow-lg shadow-amber-500/20">
-                A
-              </div>
+              {branding?.logoDataUrl ? (
+                <div className="relative w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-lg shadow-amber-500/20 overflow-hidden">
+                  <img src={branding.logoDataUrl} alt={`${branding.businessName || 'Business'} logo`} className="w-full h-full object-contain p-1" />
+                </div>
+              ) : (
+                <div className="relative w-10 h-10 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 text-charcoal font-extrabold flex items-center justify-center text-lg shadow-lg shadow-amber-500/20">
+                  A
+                </div>
+              )}
             </div>
             <div className="hidden lg:block">
               <div className="font-bold text-white leading-tight">AVA</div>

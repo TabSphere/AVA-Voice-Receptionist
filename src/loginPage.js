@@ -116,6 +116,24 @@ export const LOGIN_PAGE_HTML = `<!DOCTYPE html>
   const note = document.getElementById('note');
   const title = document.getElementById('title');
   let mode = 'login';
+  // Branding: swap the default amber "A" mark for the uploaded logo (if any).
+  try {
+    const b = await fetch('/api/public/branding').then(r => r.json());
+    if (b && b.logoDataUrl) {
+      const logo = document.querySelector('.logo');
+      const img = document.createElement('img');
+      img.src = b.logoDataUrl;
+      img.alt = (b.businessName || 'Business') + ' logo';
+      img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:14px;background:#fff;padding:6px;';
+      logo.textContent = '';
+      logo.style.background = 'transparent';
+      logo.style.animation = 'rise .6s .05s cubic-bezier(.22,1,.36,1) both';
+      logo.appendChild(img);
+    }
+    if (b && b.businessName) {
+      document.getElementById('subtitle').textContent = b.businessName + ' · Voice Receptionist Dashboard';
+    }
+  } catch (e) {}
   try {
     const st = await fetch('/api/auth/status').then(r => r.json());
     if (!st.setup) mode = 'setup';

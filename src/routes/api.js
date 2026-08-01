@@ -1,6 +1,7 @@
 import express from 'express';
 import twilio from 'twilio';
-import { getConfig, saveConfig, publicConfig, SECRET_KEYS, getDemoMode, setDemoMode } from '../lib/config.js';
+import { getConfig, saveConfig, publicConfig, SECRET_KEYS, getDemoMode, setDemoMode, getBranding, setBranding } from '../lib/config.js';
+import { businessNameOf } from '../ava-prompt.js';
 import * as store from '../lib/store.js';
 
 const router = express.Router();
@@ -45,6 +46,38 @@ router.post('/config', (req, res) => {
   }
 });
 
+// GET /api/public/branding — PUBLIC (exempted from auth gate in server.js).
+// Used by the /login page and navbar to show the uploaded logo.
+router.get('/public/branding', (req, res) => {
+  const branding = getBranding();
+  res.json({ logoDataUrl: branding.logoDataUrl, businessName: businessNameOf(getConfig()) });
+});
+
+const LOGO_DATA_URL_RE = /^data:image\/(png|jpe?g|svg\+xml|webp);base64,[A-Za-z0-9+/=\s]+$/;
+// ~500KB binary ≈ ~680KB base64; cap the whole data URL generously below that.
+const LOGO_MAX_CHARS = 700 * 1024;
+
+// POST /api/config/logo {logoDataUrl} — store branding logo (png/jpg/svg/webp ≤ ~500KB).
+router.post('/config/logo', (req, res) => {
+  const logoDataUrl = req.body?.logoDataUrl;
+  if (typeof logoDataUrl !== 'string' || !LOGO_DATA_URL_RE.test(logoDataUrl)) {
+    return res.status(400).json({ ok: false, error: 'Logo must be a png, jpg, svg or webp image' });
+  }
+  if (logoDataUrl.length > LOGO_MAX_CHARS) {
+    return res.status(400).json({ ok: false, error: 'Logo is too large (max ~500KB)' });
+  }
+  setBranding(logoDataUrl);
+  store.logActivity('config', 'Branding logo updated');
+  res.json({ ok: true, branding: getBranding() });
+});
+
+// DELETE /api/config/logo — remove the branding logo.
+router.delete('/config/logo', (req, res) => {
+  setBranding(null);
+  store.logActivity('config', 'Branding logo removed');
+  res.json({ ok: true });
+});
+
 // GET /api/calls
 router.get('/calls', (req, res) => {
   res.json({ calls: store.listCalls() });
@@ -53,6 +86,18 @@ router.get('/calls', (req, res) => {
 // GET /api/leads
 router.get('/leads', (req, res) => {
   res.json({ leads: store.listLeads() });
+});
+
+// GET /api/bookings
+router.get('/bookings', (req, res) => {
+  res.json({ bookings: store.listBookings() });
+});
+
+// DELETE /api/bookings/:id
+router.delete('/bookings/:id', (req, res) => {
+  const ok = store.deleteBooking(req.params.id);
+  if (!ok) return res.status(404).json({ ok: false, error: 'Booking not found' });
+  res.json({ ok: true });
 });
 
 // POST /api/demo {enabled:true|false} — seed or remove tagged demo data.

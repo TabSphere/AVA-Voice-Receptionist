@@ -42,10 +42,13 @@ export function createApp() {
     '/voice',
     '/gather',
     '/dial-complete',
+    '/whisper', // Twilio webhook (warm transfer whisper) — no session cookie
+    '/whisper-decision',
     '/voicemail',
     '/status', // Twilio status callback (exact path only)
     '/login',
     '/health',
+    '/api/public/branding', // login page + navbar logo
   ]);
   app.use((req, res, next) => {
     const p = req.path;

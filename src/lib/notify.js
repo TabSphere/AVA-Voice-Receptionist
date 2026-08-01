@@ -15,6 +15,30 @@ function getTwilio() {
 }
 
 /**
+ * Check whether outbound SMS is configured.
+ */
+export function smsConfigured() {
+  const cfg = getConfig();
+  return Boolean(cfg.TWILIO_ACCOUNT_SID && cfg.TWILIO_AUTH_TOKEN && cfg.TWILIO_NUMBER);
+}
+
+/**
+ * Send an SMS from the configured Twilio number. Returns true on success.
+ * Never throws — returns false if not configured or on failure.
+ */
+export async function sendSms(to, body) {
+  const cfg = getConfig();
+  if (!cfg.TWILIO_ACCOUNT_SID || !cfg.TWILIO_AUTH_TOKEN || !cfg.TWILIO_NUMBER) return false;
+  try {
+    await getTwilio().messages.create({ from: cfg.TWILIO_NUMBER, to, body });
+    return true;
+  } catch (err) {
+    console.error('SMS send failed:', err.message);
+    return false;
+  }
+}
+
+/**
  * Send a WhatsApp message to Frederick. Returns true on success.
  */
 export async function sendWhatsApp(body) {

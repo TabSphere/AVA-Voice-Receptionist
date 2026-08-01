@@ -43,7 +43,14 @@ const rise = {
 export default function Overview() {
   const [status, setStatus] = useState(null);
   const [err, setErr] = useState('');
+  const [branding, setBranding] = useState(null);
   const firstLoad = useRef(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.branding().then((b) => !cancelled && setBranding(b)).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +102,21 @@ export default function Overview() {
   return (
     <motion.div className="space-y-6" variants={stagger} initial="hidden" animate="show">
       <motion.div variants={rise} className="flex items-center justify-between">
-        <h1 className="text-2xl font-extrabold">Overview</h1>
+        <div className="flex items-center gap-3">
+          {branding?.logoDataUrl && (
+            <img
+              src={branding.logoDataUrl}
+              alt={`${branding.businessName || 'Business'} logo`}
+              className="w-9 h-9 rounded-xl bg-white border border-stone-200 object-contain p-0.5 shadow-sm"
+            />
+          )}
+          <div>
+            <h1 className="text-2xl font-extrabold leading-tight">Overview</h1>
+            {branding?.businessName && (
+              <div className="text-xs font-semibold text-stone-400 leading-tight">{branding.businessName}</div>
+            )}
+          </div>
+        </div>
         {status && (
           <span className="text-sm text-stone-500">
             Uptime: <span className="font-semibold text-charcoal">{fmtUptime(status.uptimeSec)}</span>

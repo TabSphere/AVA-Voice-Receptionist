@@ -172,3 +172,24 @@ export function demoActivity() {
     { id: 'demo-act-8', ts: ago(4 * DAY), type: 'lead', message: 'New lead: James Caldwell (HIGH VALUE)', demo: true },
   ];
 }
+
+/** Two upcoming demo bookings (always in the future, Mon–Sat daytime). */
+export function demoBookings() {
+  const mk = (daysAhead, hour, minute) => {
+    const d = new Date(Date.now() + daysAhead * DAY);
+    d.setHours(hour, minute, 0, 0);
+    return d.toISOString();
+  };
+  return [
+    {
+      id: 'demo-booking-1', name: 'Sarah Mitchell', phone: '+44 7911 123456',
+      service: 'E-commerce website consultation', startISO: mk(2, 10, 30),
+      createdAt: ago(6 * HOUR), demo: true,
+    },
+    {
+      id: 'demo-booking-2', name: 'James Caldwell', phone: '+44 7555 887733',
+      service: 'Website redesign discovery call', startISO: mk(4, 14, 0),
+      createdAt: ago(2 * DAY), demo: true,
+    },
+  ];
+}

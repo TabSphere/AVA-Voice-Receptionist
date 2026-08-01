@@ -267,6 +267,224 @@ const authFetch = (url, options = {}) =>
   assert('status reports demoMode false', st2.demoMode === false);
 }
 
+
+// 7. Business Brain fields appear in buildSystemPrompt
+{
+  const { buildSystemPrompt, GREETINGS, greetingFor } = await import('../src/ava-prompt.js');
+  const prompt = buildSystemPrompt({
+    BUSINESS_NAME: 'Acme Widgets Ltd',
+    BUSINESS_ABOUT: 'We make shiny widgets in Dundee.',
+    BUSINESS_SERVICES: 'Widgets from £99.',
+    BUSINESS_FAQS: 'Q: Do you deliver? A: Yes, UK wide.',
+    BUSINESS_CUSTOM: 'Always mention the widget guarantee.',
+  });
+  assert('prompt uses custom business name', prompt.includes('Acme Widgets Ltd'));
+  assert('prompt includes About', prompt.includes('shiny widgets in Dundee'));
+  assert('prompt includes Services', prompt.includes('Widgets from £99'));
+  assert('prompt includes FAQs', prompt.includes('Do you deliver?'));
+  assert('prompt includes Custom Instructions', prompt.includes('widget guarantee'));
+  assert('prompt includes BUSINESS KNOWLEDGE header', prompt.includes('BUSINESS KNOWLEDGE'));
+  assert('prompt teaches SEND_PRICING token', prompt.includes('[SEND_PRICING]'));
+  assert('prompt teaches BOOK token', prompt.includes('[BOOK:YYYY-MM-DD HH:MM'));
+  assert('prompt injects current date', /Today's date is .*20\d\d/.test(prompt));
+
+  const def = buildSystemPrompt({});
+  assert('defaults fall back to TabSphere', def.includes('TabSphere Limited') && def.includes('Starter from £499'));
+  const greet = greetingFor({ BUSINESS_NAME: 'Acme Widgets Ltd' }, false);
+  assert('greeting uses business name', greet.includes("you've reached Acme Widgets Ltd"));
+  assert('default greeting uses TabSphere', GREETINGS.standard.includes("you've reached TabSphere Limited"));
+}
+
+// 8. [SEND_PRICING] token: stripped + SMS skipped gracefully without Twilio
+{
+  const { processReply } = await import('../src/routes/voice.js');
+  // Config earlier in these tests set TWILIO_ACCOUNT_SID but no token/number → not configured.
+  const r = await processReply(
+    "Absolutely, I'll text that over right now. [SEND_PRICING]",
+    { callSid: 'CAtoken1', from: '+447700900555' }
+  );
+  assert('SEND_PRICING stripped from spoken reply', !r.spoken.includes('[SEND_PRICING]') && !r.spoken.includes('SEND_PRICING'));
+  assert('spoken reply intact', r.spoken.includes("I'll text that over right now"));
+  assert('no crash without Twilio + no fallback line spoken', !r.spoken.includes('Frederick will text you shortly'));
+}
+
+// 9. [BOOK:...] valid → stored; clash rejected; GET /api/bookings (authed)
+{
+  const { processReply, londonWallToDate } = await import('../src/routes/voice.js');
+
+  // Find the next Mon–Sat date (London) at 10:30.
+  function nextSlot() {
+    const fmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/London', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit',
+    });
+    for (let i = 1; i < 10; i++) {
+      const d = new Date(Date.now() + i * 86400e3);
+      const parts = fmt.formatToParts(d);
+      const get = (t) => parts.find((x) => x.type === t).value;
+      if (get('weekday') === 'Sun') continue;
+      return `${get('year')}-${get('month')}-${get('day')} 10:30`;
+    }
+    throw new Error('no slot found');
+  }
+  const slot = nextSlot();
+  assert('londonWallToDate parses', londonWallToDate(slot) instanceof Date && !Number.isNaN(londonWallToDate(slot)));
+
+  const ok = await processReply(
+    `Lovely, that's booked for you. [BOOK:${slot} | Test Caller | +447700900777 | website consultation]`,
+    { callSid: 'CAbook1', from: '+447700900777' }
+  );
+  assert('BOOK token stripped from spoken reply', !ok.spoken.includes('[BOOK') && !ok.spoken.includes('BOOK:'));
+
+  const { bookings } = await (await authFetch(`${base}/api/bookings`)).json();
+  const saved = bookings.find((b) => b.name === 'Test Caller');
+  assert('booking stored + returned by GET /api/bookings', Boolean(saved));
+  assert('booking has startISO + service', saved && saved.startISO && saved.service === 'website consultation');
+  assert('GET /api/bookings requires auth', (await fetch(`${base}/api/bookings`)).status === 401);
+
+  // Clash: same slot again → NOT saved, alternatives offered (no OpenAI → fallback line).
+  const clash = await processReply(
+    `Booking that now. [BOOK:${slot} | Second Caller | +447700900778 | consultation]`,
+    {
+      callSid: 'CAbook2',
+      from: '+447700900778',
+      // OpenAI unreachable in tests → regeneration fails → spoken fallback line.
+      regenerate: async () => { throw new Error('OPENAI_API_KEY is not configured'); },
+    }
+  );
+  assert('clash not saved', !(await (await authFetch(`${base}/api/bookings`)).json()).bookings.some((b) => b.name === 'Second Caller'));
+  assert('clash reply asks for another time', /another time/i.test(clash.spoken), clash.spoken);
+
+  // Past slot rejected too.
+  const past = await processReply(
+    'Sure. [BOOK:2020-01-06 10:00 | Past Caller | +447700900779 | consultation]',
+    { callSid: 'CAbook3', from: '+447700900779', regenerate: async () => { throw new Error('no OpenAI'); } }
+  );
+  assert('past slot not saved', !(await (await authFetch(`${base}/api/bookings`)).json()).bookings.some((b) => b.name === 'Past Caller'));
+
+  // DELETE /api/bookings/:id
+  const del = await authFetch(`${base}/api/bookings/${saved.id}`, { method: 'DELETE' });
+  assert('DELETE booking ok', del.status === 200 && (await del.json()).ok === true);
+  assert('booking gone after delete', !(await (await authFetch(`${base}/api/bookings`)).json()).bookings.some((b) => b.id === saved.id));
+  assert('DELETE unknown booking 404', (await authFetch(`${base}/api/bookings/nope`, { method: 'DELETE' })).status === 404);
+}
+
+// 10. Demo mode includes 2 sample bookings and clears them
+{
+  await authFetch(`${base}/api/demo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: true }),
+  });
+  const { bookings } = await (await authFetch(`${base}/api/bookings`)).json();
+  const demos = bookings.filter((b) => b.demo === true);
+  assert('demo seeds 2 bookings', demos.length === 2, String(demos.length));
+  await authFetch(`${base}/api/demo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled: false }),
+  });
+  const after = await (await authFetch(`${base}/api/bookings`)).json();
+  assert('demo bookings removed', after.bookings.every((b) => b.demo !== true));
+}
+
+// 11. Warm transfer whisper TwiML (Twilio webhooks — no auth required)
+{
+  const w = await fetch(`${base}/whisper?name=Sarah&number=%2B447700900111&reason=Website%20is%20down`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'CallSid=CAwhisper1',
+  });
+  const wt = await w.text();
+  assert('POST /whisper 200 without auth', w.status === 200);
+  assert('whisper has Gather numDigits=1', wt.includes('<Gather') && wt.includes('numDigits="1"'), wt.slice(0, 300));
+  assert('whisper action is /whisper-decision', wt.includes('action="/whisper-decision"'));
+  assert('whisper uses Polly.Amy (cheap voice)', wt.includes('Polly.Amy') && !wt.includes('elevenlabs'));
+  assert('whisper announces caller + reason', wt.includes('Sarah') && wt.includes('Website is down'));
+  assert('whisper offers press-1 / voicemail choice', /Press 1 to connect/i.test(wt) && /voicemail/i.test(wt));
+
+  const d1 = await fetch(`${base}/whisper-decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'Digits=1',
+  });
+  const d1t = await d1.text();
+  assert('whisper-decision Digits=1 connects', d1.status === 200 && d1t.includes('Connecting you now') && !d1t.includes('<Hangup'));
+  const d2 = await fetch(`${base}/whisper-decision`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'Digits=2',
+  });
+  assert('whisper-decision other digit hangs up', (await d2.text()).includes('<Hangup'));
+}
+
+// 12. Public branding endpoint + logo upload/remove roundtrip
+{
+  const pub = await fetch(`${base}/api/public/branding`);
+  const pubJ = await pub.json();
+  assert('GET /api/public/branding 200 without auth', pub.status === 200);
+  assert('branding has logoDataUrl + businessName', 'logoDataUrl' in pubJ && typeof pubJ.businessName === 'string');
+
+  // Tiny valid png data URL (1x1 px).
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const up = await authFetch(`${base}/api/config/logo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ logoDataUrl: png }),
+  });
+  assert('POST /api/config/logo ok', up.status === 200 && (await up.json()).ok === true);
+  const pub2 = await (await fetch(`${base}/api/public/branding`)).json();
+  assert('logo visible on public branding', pub2.logoDataUrl === png);
+
+  // Logo survives a normal config save (stored outside ALL_KEYS).
+  await authFetch(`${base}/api/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ BUSINESS_NAME: 'TabSphere Limited' }),
+  });
+  const pub3 = await (await fetch(`${base}/api/public/branding`)).json();
+  assert('logo survives config save', pub3.logoDataUrl === png);
+
+  const bad = await authFetch(`${base}/api/config/logo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ logoDataUrl: 'data:text/html;base64,PGI+aGk=' }),
+  });
+  assert('logo rejects non-image type', bad.status === 400);
+
+  const del = await authFetch(`${base}/api/config/logo`, { method: 'DELETE' });
+  assert('DELETE /api/config/logo ok', del.status === 200);
+  const pub4 = await (await fetch(`${base}/api/public/branding`)).json();
+  assert('logo removed', pub4.logoDataUrl === '');
+
+  // Auth gate still blocks unauthenticated config + logo endpoints.
+  assert('GET /api/config 401 unauthenticated', (await fetch(`${base}/api/config`)).status === 401);
+  const noauth = await fetch(`${base}/api/config/logo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ logoDataUrl: png }),
+  });
+  assert('POST /api/config/logo 401 unauthenticated', noauth.status === 401);
+}
+
+// 13. Website in the brain + escalation whisper URL helper
+{
+  const { buildSystemPrompt, websiteOf } = await import('../src/ava-prompt.js');
+  const prompt = buildSystemPrompt({});
+  assert('default website is tabsphere', websiteOf({}) === 'www.tabsphere.co.uk');
+  assert('prompt includes company website', prompt.includes('www.tabsphere.co.uk'));
+  assert('prompt may mention website to callers', /see our work at tabsphere dot co dot uk/i.test(prompt));
+  const custom = buildSystemPrompt({ BUSINESS_WEBSITE: 'www.example.com' });
+  assert('website configurable via BUSINESS_WEBSITE', custom.includes('www.example.com'));
+
+  const { whisperUrlFor } = await import('../src/routes/voice.js');
+  const url = whisperUrlFor(
+    { headers: {}, protocol: 'https', get: () => 'host.example' },
+    { name: 'Sarah', number: '+447700900111', reason: 'down' }
+  );
+  assert('whisper URL uses PUBLIC_URL from config', url.startsWith('https://example.ngrok.io/whisper?'), url);
+  assert('whisper URL carries params', url.includes('name=Sarah') && url.includes('reason=down'));
+}
+
 server.close();
 fs.rmSync(tmpData, { recursive: true, force: true });console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
