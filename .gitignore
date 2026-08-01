@@ -1,0 +1,7 @@
+node_modules/
+data/
+dist/
+client/dist/
+public/audio/*.mp3
+.env
+*.log
